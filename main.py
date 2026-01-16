@@ -1,9 +1,9 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from datetime import datetime
-import math
 import calendar
-import growth_data
+from analysis_service import AnalysisService
+
 
 class Colors:
     PRIMARY = "#3498db"
@@ -282,8 +282,6 @@ class CocukGelisimApp:
         self.lbl_placeholder = ttk.Label(self.results_content, text="Sonuçları görmek için verileri girip 'ANALİZ ET' butonuna basınız.", foreground="#95a5a6", wraplength=400, font=("Segoe UI", 14, "italic"))
         self.lbl_placeholder.pack(pady=50)
 
-    def format_yas(self, year, month):
-        return f"{int(year)} Yıl {int(month)} Ay"
 
     def create_detail_table(self, parent, title, rows):
         frame = ttk.LabelFrame(parent, text=title, padding="10")
@@ -306,46 +304,6 @@ class CocukGelisimApp:
             val_entry.insert(0, v)
             val_entry.config(state="readonly")
 
-    def calculate_lms(self, value, l, m, s):
-        """
-        Calculate Z-score using LMS method:
-        Z = ((observed / M) ** L - 1) / (L * S)  if L != 0
-        Z = ln(observed / M) / S                 if L == 0
-        """
-        if l == 0:
-            z = math.log(value / m) / s
-        else:
-            z = ((value / m) ** l - 1) / (l * s)
-        
-        # Calculate Percentile from Z
-        percentile = 0.5 * (1 + math.erf(z / math.sqrt(2))) * 100
-        return z, percentile
-
-    def get_lms_params(self, gender, metric, months):
-        try:
-            # growth_data.LMS_DATA keys are integers (months)
-            data = growth_data.LMS_DATA[gender][metric]
-            keys = sorted(data.keys())
-            
-            # Clamp
-            if months <= keys[0]: months = keys[0]
-            if months >= keys[-1]: months = keys[-1]
-            
-            # Interpolation
-            for i in range(len(keys)-1):
-                if keys[i] <= months <= keys[i+1]:
-                    t1, t2 = keys[i], keys[i+1]
-                    vals1 = data[t1]
-                    vals2 = data[t2]
-                    
-                    ratio = (months - t1) / (t2 - t1)
-                    l = vals1[0] + (vals2[0] - vals1[0]) * ratio
-                    m = vals1[1] + (vals2[1] - vals1[1]) * ratio
-                    s = vals1[2] + (vals2[2] - vals1[2]) * ratio
-                    return l, m, s
-            return data[months] # Fallback
-        except KeyError:
-             return None
 
     def hesapla(self):
         try:
@@ -366,87 +324,59 @@ class CocukGelisimApp:
             kilo = self.kilo_var.get()
             cinsiyet = self.cinsiyet_var.get()
 
-            if boy <= 0 or kilo <= 0: raise ValueError("Boy ve kilo pozitif olmalı.")
-
-            dogum_tarihi = datetime(yil, ay, gun)
-            kontrol_tarihi = datetime(k_yil, k_ay, k_gun)
+            results = AnalysisService.perform_analysis(gun, ay, yil, k_gun, k_ay, k_yil, boy, kilo, cinsiyet)
             
-            if kontrol_tarihi < dogum_tarihi:
-                raise ValueError("Kontrol tarihi doğum tarihinden önce olamaz.")
+            if "error" in results:
+                 messagebox.showerror("Hata", f"Girdi Hatası: {results['error']}")
+                 return
 
-            yas_gun = (kontrol_tarihi - dogum_tarihi).days
-            yas_ay_total = yas_gun / 30.4375 
-            yas_yil = yas_gun / 365.25
-            yas_str = self.format_yas(yas_yil, yas_ay_total % 12)
+            if results.get("warning"):
+                 messagebox.showwarning("Uyarı", results["warning"])
 
-            if yas_yil > 19:
-                messagebox.showwarning("Uyarı", "Bu program 0-19 yaş arası çocuklar içindir.")
-            
-            # --- Boy ---
-            lms_boy = self.get_lms_params(cinsiyet, 'boy', yas_ay_total)
-            boy_z, boy_p = (None, None)
-            if lms_boy:
-                boy_z, boy_p = self.calculate_lms(boy, *lms_boy)
+            yas_str = results["yas_str"]
 
-            
-            # --- Kilo ---
-            # WHO allows Weight up to 10y (120m).
-            lms_kilo = self.get_lms_params(cinsiyet, 'kilo', yas_ay_total)
-            kilo_z, kilo_p = (None, None)
-            if lms_kilo and yas_ay_total <= 121: # Tolerans 10y+1m
-                kilo_z, kilo_p = self.calculate_lms(kilo, *lms_kilo)
-
-            # --- BMI ---
-            bmi = kilo / ((boy / 100) ** 2)
-            lms_bmi = self.get_lms_params(cinsiyet, 'bmi', yas_ay_total)
-            bmi_z, bmi_p = (None, None)
-            if lms_bmi:
-                bmi_z, bmi_p = self.calculate_lms(bmi, *lms_bmi)
-
-            # --- SONUÇLARI GÖSTER (Sıra: BMI, Kilo, Boy) ---
-            
             # 1. BMI Alanı
-            if lms_bmi:
+            if "bmi" in results and results["bmi"]:
+                bmi_data = results["bmi"]
                 self.create_detail_table(self.results_content, "Çocuk BMI Hesapla", [
                     ("Yaş", yas_str),
-                    ("BMI", f"{bmi:.2f}"),
-                    ("Z-Score", f"{bmi_z:.2f}"),
-                    ("Persentil", f"% {bmi_p:.2f}")
+                    ("BMI", f"{bmi_data['val']:.2f}"),
+                    ("Z-Score", f"{bmi_data['z']:.2f}"),
+                    ("Persentil", f"% {bmi_data['p']:.2f}")
                 ])
-                
-                # Yorum
-                bmi_yorum = "Normal"
-                if bmi_p < 5: bmi_yorum = "Zayıf (Underweight)"
-                elif 5 <= bmi_p < 85: bmi_yorum = "Sağlıklı (Healthy)"
-                elif 85 <= bmi_p < 95: bmi_yorum = "Fazla Kilolu (Overweight)"
-                elif bmi_p >= 95: bmi_yorum = "Obez (Obese)"
-                
-                ttk.Label(self.results_content, text=f"BMI Durumu: {bmi_yorum}", font=("Segoe UI", 10, "italic"), foreground="#7f8c8d").pack(anchor="w", padx=10)
+                ttk.Label(self.results_content, text=f"BMI Durumu: {bmi_data['yorum']}", font=("Segoe UI", 10, "italic"), foreground="#7f8c8d").pack(anchor="w", padx=10)
             else:
                 ttk.Label(self.results_content, text="BMI verisi bulunamadı.", foreground="red").pack()
 
             # 2. Kilo Alanı
-            if lms_kilo and yas_ay_total <= 121:
+            if "kilo" in results and results["kilo"]:
+                kilo_data = results["kilo"]
                 self.create_detail_table(self.results_content, "Çocuk Kilosu Hesapla", [
-                    ("Yaş", yas_str),
-                    ("Kilo", f"{kilo} kg"),
-                    ("Z-Score", f"{kilo_z:.2f}"),
-                    ("Persentil", f"% {kilo_p:.2f}")
+                     ("Yaş", yas_str),
+                     ("Kilo", f"{kilo_data['val']} kg"),
+                     ("Z-Score", f"{kilo_data['z']:.2f}"),
+                     ("Persentil", f"% {kilo_data['p']:.2f}")
                 ])
             else:
-                msg = "Kilo verisi 10 yaş üstü için hesaplanmaz (BMI kullanın)." if yas_ay_total > 120 else ("Kilo verisi bulunamadı." if not lms_kilo else "")
-                if msg: ttk.Label(self.results_content, text=msg, foreground="red").pack(pady=10)
+                 msg = ""
+                 if results["yas_ay_total"] > 120:
+                     msg = "Kilo verisi 10 yaş üstü için hesaplanmaz (BMI kullanın)."
+                 else:
+                     msg = "Kilo verisi bulunamadı."
+                 
+                 if msg: ttk.Label(self.results_content, text=msg, foreground="red").pack(pady=10)
 
             # 3. Boy Alanı
-            if lms_boy:
+            if "boy" in results and results["boy"]:
+                boy_data = results["boy"]
                 self.create_detail_table(self.results_content, "Çocuk Boyu Hesapla", [
                     ("Yaş", yas_str),
-                    ("Boy", f"{boy} cm"),
-                    ("Z-Score", f"{boy_z:.2f}"),
-                    ("Persentil", f"% {boy_p:.2f}")
+                    ("Boy", f"{boy_data['val']} cm"),
+                    ("Z-Score", f"{boy_data['z']:.2f}"),
+                    ("Persentil", f"% {boy_data['p']:.2f}")
                 ])
             else:
-                 ttk.Label(self.results_content, text="Boy verisi bulunamadı.", foreground="red").pack()
+                ttk.Label(self.results_content, text="Boy verisi bulunamadı.", foreground="red").pack()
 
         except ValueError as ve:
              messagebox.showerror("Hata", f"Girdi Hatası: {str(ve)}")

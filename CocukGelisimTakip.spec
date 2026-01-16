@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['cocuk_gelisim_hesapla.py'],
+    ['main.py'],
     pathex=[],
     binaries=[],
     datas=[],
