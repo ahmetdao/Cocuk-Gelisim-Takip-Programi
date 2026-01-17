@@ -1,5 +1,6 @@
 import math
 import growth_data
+import growth_data_extended
 from datetime import datetime
 
 class AnalysisService:
@@ -27,7 +28,15 @@ class AnalysisService:
     def get_lms_params(gender, metric, months):
         try:
             # growth_data.LMS_DATA keys are integers (months)
-            data = growth_data.LMS_DATA[gender][metric]
+            data_source = growth_data.LMS_DATA[gender][metric]
+            
+            # 10-19 yaş kilo verisi kontrolü
+            if metric == 'kilo' and months > 120:
+                if gender in growth_data_extended.LMS_DATA_EXTENDED:
+                    # Genişletilmiş veriye geçiş yapıyoruz ama interpolasyon için 120. ayı da kapsayabiliriz
+                    data_source = growth_data_extended.LMS_DATA_EXTENDED[gender][metric]
+            
+            data = data_source
             keys = sorted(data.keys())
             
             # Clamp
@@ -86,9 +95,10 @@ class AnalysisService:
                 results["boy"] = {"val": boy, "z": boy_z, "p": boy_p}
             
             # --- Kilo ---
-            # WHO allows Weight up to 10y (120m).
+            # WHO allows Weight up to 10y (120m). 
+            # Extended with CPEG/CDC data up to 19y (228m).
             lms_kilo = AnalysisService.get_lms_params(cinsiyet, 'kilo', yas_ay_total)
-            if lms_kilo and yas_ay_total <= 121: 
+            if lms_kilo and yas_ay_total <= 229: 
                 kilo_z, kilo_p = AnalysisService.calculate_lms(kilo, *lms_kilo)
                 results["kilo"] = {"val": kilo, "z": kilo_z, "p": kilo_p}
 

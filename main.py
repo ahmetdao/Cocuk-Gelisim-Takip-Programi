@@ -358,13 +358,8 @@ class CocukGelisimApp:
                      ("Persentil", f"% {kilo_data['p']:.2f}")
                 ])
             else:
-                 msg = ""
-                 if results["yas_ay_total"] > 120:
-                     msg = "Kilo verisi 10 yaş üstü için hesaplanmaz (BMI kullanın)."
-                 else:
-                     msg = "Kilo verisi bulunamadı."
-                 
-                 if msg: ttk.Label(self.results_content, text=msg, foreground="red").pack(pady=10)
+                 msg = "Kilo verisi bulunamadı."
+                 ttk.Label(self.results_content, text=msg, foreground="red").pack(pady=10)
 
             # 3. Boy Alanı
             if "boy" in results and results["boy"]:

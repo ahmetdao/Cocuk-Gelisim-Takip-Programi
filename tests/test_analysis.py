@@ -1,4 +1,8 @@
 import unittest
+import sys
+import os
+# Ana dizindeki modülleri bulabilmek için sys.path ayarı
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from analysis_service import AnalysisService
 
 class TestAnalysisService(unittest.TestCase):
